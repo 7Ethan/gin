@@ -29,6 +29,11 @@ type FooBarStruct struct {
 	Bar string `msgpack:"bar" json:"bar" form:"bar" xml:"bar" binding:"required"`
 }
 
+type FooDefaultBarStruct struct {
+	FooStruct
+	Bar string `msgpack:"bar" json:"bar" form:"bar,default=hello" xml:"bar" binding:"required"`
+}
+
 type FooStructUseNumber struct {
 	Foo interface{} `json:"foo" binding:"required"`
 }
@@ -69,9 +74,25 @@ type FooStructForSliceType struct {
 	SliceFoo []int `form:"slice_foo"`
 }
 
+type FooStructForStructType struct {
+	StructFoo struct {
+		Idx int `form:"idx"`
+	}
+}
+
+type FooStructForStructPointerType struct {
+	StructPointerFoo *struct {
+		Name string `form:"name"`
+	}
+}
+
 type FooStructForSliceMapType struct {
 	// Unknown type: not support map
 	SliceMapFoo []map[string]interface{} `form:"slice_map_foo"`
+}
+
+type FooStructForBoolType struct {
+	BoolFoo bool `form:"bool_foo"`
 }
 
 type FooBarStructForIntType struct {
@@ -139,6 +160,15 @@ type FooBarStructForFloat64Type struct {
 	Float64Bar float64 `form:"float64_bar" binding:"required"`
 }
 
+type FooStructForStringPtrType struct {
+	PtrFoo *string `form:"ptr_foo"`
+	PtrBar *string `form:"ptr_bar" binding:"required"`
+}
+
+type FooStructForMapPtrType struct {
+	PtrBar *map[string]interface{} `form:"ptr_bar"`
+}
+
 func TestBindingDefault(t *testing.T) {
 	assert.Equal(t, Form, Default("GET", ""))
 	assert.Equal(t, Form, Default("GET", MIMEJSON))
@@ -192,6 +222,18 @@ func TestBindingForm(t *testing.T) {
 func TestBindingForm2(t *testing.T) {
 	testFormBinding(t, "GET",
 		"/?foo=bar&bar=foo", "/?bar2=foo",
+		"", "")
+}
+
+func TestBindingFormDefaultValue(t *testing.T) {
+	testFormBindingDefaultValue(t, "POST",
+		"/", "/",
+		"foo=bar", "bar2=foo")
+}
+
+func TestBindingFormDefaultValue2(t *testing.T) {
+	testFormBindingDefaultValue(t, "GET",
+		"/?foo=bar", "/?bar2=foo",
 		"", "")
 }
 
@@ -361,6 +403,30 @@ func TestBindingFormForType(t *testing.T) {
 	testFormBindingForType(t, "GET",
 		"/?float64_foo=&float64_bar=-12.34", "/?bar2=12.3",
 		"", "", "Float64")
+
+	testFormBindingForType(t, "POST",
+		"/", "/",
+		"ptr_bar=test", "bar2=test", "Ptr")
+
+	testFormBindingForType(t, "GET",
+		"/?ptr_bar=test", "/?bar2=test",
+		"", "", "Ptr")
+
+	testFormBindingForType(t, "POST",
+		"/", "/",
+		"idx=123", "id1=1", "Struct")
+
+	testFormBindingForType(t, "GET",
+		"/?idx=123", "/?id1=1",
+		"", "", "Struct")
+
+	testFormBindingForType(t, "POST",
+		"/", "/",
+		"name=thinkerou", "name1=ou", "StructPointer")
+
+	testFormBindingForType(t, "GET",
+		"/?name=thinkerou", "/?name1=ou",
+		"", "", "StructPointer")
 }
 
 func TestBindingQuery(t *testing.T) {
@@ -387,6 +453,12 @@ func TestBindingQueryFail2(t *testing.T) {
 		"map_foo=unused", "")
 }
 
+func TestBindingQueryBoolFail(t *testing.T) {
+	testQueryBindingBoolFail(t, "GET",
+		"/?bool_foo=fasl", "/?bar2=foo",
+		"bool_foo=unused", "")
+}
+
 func TestBindingXML(t *testing.T) {
 	testBodyBinding(t,
 		XML, "xml",
@@ -403,6 +475,12 @@ func TestBindingXMLFail(t *testing.T) {
 
 func createFormPostRequest() *http.Request {
 	req, _ := http.NewRequest("POST", "/?foo=getfoo&bar=getbar", bytes.NewBufferString("foo=bar&bar=foo"))
+	req.Header.Set("Content-Type", MIMEPOSTForm)
+	return req
+}
+
+func createDefaultFormPostRequest() *http.Request {
+	req, _ := http.NewRequest("POST", "/?foo=getfoo&bar=getbar", bytes.NewBufferString("foo=bar"))
 	req.Header.Set("Content-Type", MIMEPOSTForm)
 	return req
 }
@@ -448,6 +526,15 @@ func TestBindingFormPost(t *testing.T) {
 	assert.Equal(t, "form-urlencoded", FormPost.Name())
 	assert.Equal(t, "bar", obj.Foo)
 	assert.Equal(t, "foo", obj.Bar)
+}
+
+func TestBindingDefaultValueFormPost(t *testing.T) {
+	req := createDefaultFormPostRequest()
+	var obj FooDefaultBarStruct
+	FormPost.Bind(req, &obj)
+
+	assert.Equal(t, "bar", obj.Foo)
+	assert.Equal(t, "hello", obj.Bar)
 }
 
 func TestBindingFormPostFail(t *testing.T) {
@@ -573,6 +660,26 @@ func testFormBinding(t *testing.T, method, path, badPath, body, badBody string) 
 	assert.Equal(t, "foo", obj.Bar)
 
 	obj = FooBarStruct{}
+	req = requestWithBody(method, badPath, badBody)
+	err = JSON.Bind(req, &obj)
+	assert.Error(t, err)
+}
+
+func testFormBindingDefaultValue(t *testing.T, method, path, badPath, body, badBody string) {
+	b := Form
+	assert.Equal(t, "form", b.Name())
+
+	obj := FooDefaultBarStruct{}
+	req := requestWithBody(method, path, body)
+	if method == "POST" {
+		req.Header.Add("Content-Type", MIMEPOSTForm)
+	}
+	err := b.Bind(req, &obj)
+	assert.NoError(t, err)
+	assert.Equal(t, "bar", obj.Foo)
+	assert.Equal(t, "hello", obj.Bar)
+
+	obj = FooDefaultBarStruct{}
 	req = requestWithBody(method, badPath, badBody)
 	err = JSON.Bind(req, &obj)
 	assert.Error(t, err)
@@ -884,6 +991,28 @@ func testFormBindingForType(t *testing.T, method, path, badPath, body, badBody s
 		req = requestWithBody(method, badPath, badBody)
 		err = JSON.Bind(req, &obj)
 		assert.Error(t, err)
+	case "Struct":
+		obj := FooStructForStructType{}
+		err := b.Bind(req, &obj)
+		assert.NoError(t, err)
+		assert.Equal(t,
+			struct {
+				Idx int "form:\"idx\""
+			}(struct {
+				Idx int "form:\"idx\""
+			}{Idx: 123}),
+			obj.StructFoo)
+	case "StructPointer":
+		obj := FooStructForStructPointerType{}
+		err := b.Bind(req, &obj)
+		assert.NoError(t, err)
+		assert.Equal(t,
+			struct {
+				Name string "form:\"name\""
+			}(struct {
+				Name string "form:\"name\""
+			}{Name: "thinkerou"}),
+			*obj.StructPointerFoo)
 	case "Map":
 		obj := FooStructForMapType{}
 		err := b.Bind(req, &obj)
@@ -891,6 +1020,27 @@ func testFormBindingForType(t *testing.T, method, path, badPath, body, badBody s
 	case "SliceMap":
 		obj := FooStructForSliceMapType{}
 		err := b.Bind(req, &obj)
+		assert.Error(t, err)
+	case "Ptr":
+		obj := FooStructForStringPtrType{}
+		err := b.Bind(req, &obj)
+		assert.NoError(t, err)
+		assert.Nil(t, obj.PtrFoo)
+		assert.Equal(t, "test", *obj.PtrBar)
+
+		obj = FooStructForStringPtrType{}
+		obj.PtrBar = new(string)
+		err = b.Bind(req, &obj)
+		assert.NoError(t, err)
+		assert.Equal(t, "test", *obj.PtrBar)
+
+		objErr := FooStructForMapPtrType{}
+		err = b.Bind(req, &objErr)
+		assert.Error(t, err)
+
+		obj = FooStructForStringPtrType{}
+		req = requestWithBody(method, badPath, badBody)
+		err = b.Bind(req, &obj)
 		assert.Error(t, err)
 	}
 }
@@ -915,6 +1065,19 @@ func testQueryBindingFail(t *testing.T, method, path, badPath, body, badBody str
 	assert.Equal(t, "query", b.Name())
 
 	obj := FooStructForMapType{}
+	req := requestWithBody(method, path, body)
+	if method == "POST" {
+		req.Header.Add("Content-Type", MIMEPOSTForm)
+	}
+	err := b.Bind(req, &obj)
+	assert.Error(t, err)
+}
+
+func testQueryBindingBoolFail(t *testing.T, method, path, badPath, body, badBody string) {
+	b := Query
+	assert.Equal(t, "query", b.Name())
+
+	obj := FooStructForBoolType{}
 	req := requestWithBody(method, path, body)
 	if method == "POST" {
 		req.Header.Add("Content-Type", MIMEPOSTForm)

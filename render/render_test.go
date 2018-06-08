@@ -11,6 +11,8 @@ import (
 	"html/template"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -125,6 +127,43 @@ func TestRenderSecureJSONFail(t *testing.T) {
 
 	// json: unsupported type: chan int
 	err := (SecureJSON{"while(1);", data}).Render(w)
+	assert.Error(t, err)
+}
+
+func TestRenderJsonpJSON(t *testing.T) {
+	w1 := httptest.NewRecorder()
+	data := map[string]interface{}{
+		"foo": "bar",
+	}
+
+	(JsonpJSON{"x", data}).WriteContentType(w1)
+	assert.Equal(t, "application/javascript; charset=utf-8", w1.Header().Get("Content-Type"))
+
+	err1 := (JsonpJSON{"x", data}).Render(w1)
+
+	assert.NoError(t, err1)
+	assert.Equal(t, "x({\"foo\":\"bar\"})", w1.Body.String())
+	assert.Equal(t, "application/javascript; charset=utf-8", w1.Header().Get("Content-Type"))
+
+	w2 := httptest.NewRecorder()
+	datas := []map[string]interface{}{{
+		"foo": "bar",
+	}, {
+		"bar": "foo",
+	}}
+
+	err2 := (JsonpJSON{"x", datas}).Render(w2)
+	assert.NoError(t, err2)
+	assert.Equal(t, "x([{\"foo\":\"bar\"},{\"bar\":\"foo\"}])", w2.Body.String())
+	assert.Equal(t, "application/javascript; charset=utf-8", w2.Header().Get("Content-Type"))
+}
+
+func TestRenderJsonpJSONFail(t *testing.T) {
+	w := httptest.NewRecorder()
+	data := make(chan int)
+
+	// json: unsupported type: chan int
+	err := (JsonpJSON{"x", data}).Render(w)
 	assert.Error(t, err)
 }
 
@@ -346,4 +385,25 @@ func TestRenderHTMLDebugPanics(t *testing.T) {
 		FuncMap: nil,
 	}
 	assert.Panics(t, func() { htmlRender.Instance("", nil) })
+}
+
+func TestRenderReader(t *testing.T) {
+	w := httptest.NewRecorder()
+
+	body := "#!PNG some raw data"
+	headers := make(map[string]string)
+	headers["Content-Disposition"] = `attachment; filename="filename.png"`
+
+	err := (Reader{
+		ContentLength: int64(len(body)),
+		ContentType:   "image/png",
+		Reader:        strings.NewReader(body),
+		Headers:       headers,
+	}).Render(w)
+
+	assert.NoError(t, err)
+	assert.Equal(t, body, w.Body.String())
+	assert.Equal(t, "image/png", w.HeaderMap.Get("Content-Type"))
+	assert.Equal(t, strconv.Itoa(len(body)), w.HeaderMap.Get("Content-Length"))
+	assert.Equal(t, headers["Content-Disposition"], w.HeaderMap.Get("Content-Disposition"))
 }
